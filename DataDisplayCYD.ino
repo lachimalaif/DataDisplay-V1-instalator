@@ -2599,11 +2599,11 @@ void fetchWeatherData() {
       currentWindDirection = doc["current"]["wind_direction_10m"];
 
       forecast[0].code = doc["daily"]["weather_code"][1];
-      forecast[0].tempMax = doc["daily"]["temperature_2m_max"][1];
-      forecast[0].tempMin = doc["daily"]["temperature_2m_min"][1];
+      forecast[0].tempMax = weatherUnitF ? ((float)doc["daily"]["temperature_2m_max"][1] * 9.0 / 5.0 + 32) : doc["daily"]["temperature_2m_max"][1];
+      forecast[0].tempMin = weatherUnitF ? ((float)doc["daily"]["temperature_2m_min"][1] * 9.0 / 5.0 + 32) : doc["daily"]["temperature_2m_min"][1];
       forecast[1].code = doc["daily"]["weather_code"][2];
-      forecast[1].tempMax = doc["daily"]["temperature_2m_max"][2];
-      forecast[1].tempMin = doc["daily"]["temperature_2m_min"][2];
+      forecast[1].tempMax = weatherUnitF ? ((float)doc["daily"]["temperature_2m_max"][2] * 9.0 / 5.0 + 32) : doc["daily"]["temperature_2m_max"][2];
+      forecast[1].tempMin = weatherUnitF ? ((float)doc["daily"]["temperature_2m_min"][2] * 9.0 / 5.0 + 32) : doc["daily"]["temperature_2m_min"][2];
 
       // Sunrise/Sunset processing
       if (doc["daily"].containsKey("sunrise") && doc["daily"]["sunrise"].size() > 0) {
