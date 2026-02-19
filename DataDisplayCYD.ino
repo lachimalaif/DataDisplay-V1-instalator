@@ -752,6 +752,7 @@ const CountryEntry countries[] = {
   {"DE", "Germany", germanyCities, 10},
   {"FR", "France", franceCities, 10},
   {"GB", "United Kingdom", unitedKingdomCities, 10},
+  {"US", "United States", unitedStatesCities, 10},
   {"JP", "Japan", japanCities, 10},
   {"PL", "Poland", polonyCities, 10},
   {"SK", "Slovakia", slovakCities, 10},
