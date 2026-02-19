@@ -2792,6 +2792,7 @@ void drawWeatherSection() {
   
   // Vykreslení malého krouzku jako stupně (r=1)
   drawDegreeCircle(degreeX2, degreeY2, 1, txtContrast);
+  tft.drawString(unit, degreeX2 + 4, day2y + 13);
   
 // ODDĚLUJÍCÍ LINKA
   tft.setTextColor(txt, bg);
