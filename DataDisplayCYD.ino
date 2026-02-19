@@ -1,15 +1,13 @@
-//update funguje - prověřit, opravit vykreslovani a blikani progress baru
-
-
-// oprava nacteni lokace po vybrani mista ze seznamu
-//pridana volbe jednotky kmh/mph a jeji ukladani do pressetu do menu weather
-// Invert pridano a ukladano 9.3.
-// oprava zapominani timezone u manual po resetu 9.3.
-// oprava zapominani zvoleného tématu po resetu 9.3.
-// oprava zapominani nastaveni autodim po resetu 9.3.
-// oprava zapominani nastaveni jednotky teploty po resetu 9.3.
-// oprava zobrazeni o vyprseni timeoutu a bad answer z api
-// lunar phase oprava
+// fixed forecast unit for the second day
+// fixed nameday font size increase after midnight
+// fixed invalid coordinates during autosync (0,0 coordinates)
+// fixed timezones worldwide for any location input
+// fixed unit conversion between °C and °F in forecast
+// fixed US timezones and added top 15 US cities
+// added Africa/Cairo and 20+ other African timezones
+// updated code version display function in serial monitor
+// fixed bug for incorrect password in Wi-Fi settings
+// replaced day abbreviations with full names
 
 #include <WiFi.h>
 #include <Preferences.h>
@@ -32,7 +30,7 @@ bool is12hFormat = false;    // false = 24h, true = 12h
 bool invertColors = false;  // NOVÁ PROMĚNNÁ: Invertování barev pro CYD desky s invertovaným displejem
 
 // ================= OTA UPDATE GLOBALS =================
-const char* FIRMWARE_VERSION = "1.3";  // AKTUÁLNÍ VERZE
+const char* FIRMWARE_VERSION = "1.4";  // AKTUÁLNÍ VERZE
 const char* VERSION_CHECK_URL = "https://raw.githubusercontent.com/lachimalaif/DataDisplay-V1-instalator/main/version.json";
 const char* FIRMWARE_URL = "https://github.com/lachimalaif/DataDisplay-V1-instalator/releases/latest/download/DataDisplayCYD.ino.bin";
 
@@ -83,8 +81,8 @@ struct ForecastData {
 };
 ForecastData forecast[2]; 
 // Proměnné pro dny předpovědi
-String forecastDay1Name = "Mon";  // Zítra
-String forecastDay2Name = "Tue";  // Pozítří
+String forecastDay1Name = "Monday";    // Zítra
+String forecastDay2Name = "Tuesday";   // Pozítří
 
 int moonPhaseVal = 0; 
 
@@ -547,6 +545,7 @@ String countryName = "Czech Republic";
 String timezoneName = "Europe/Prague"; 
 int lookupGmtOffset = 3600;
 int lookupDstOffset = 3600;
+String posixTZ = "CET-1CEST,M3.5.0,M10.5.0/3";
 
 #define MAX_RECENT_CITIES 10
 struct RecentCity {
@@ -669,15 +668,20 @@ const CityEntry franceCities[] = {
 };
 
 const CityEntry unitedStatesCities[] = {
-  {"Atlanta", "America/Chicago", -18000, 3600},
+  {"Atlanta", "America/New_York", -18000, 3600},
   {"Boston", "America/New_York", -18000, 3600},
-  {"Chicago", "America/Chicago", -18000, 3600},
+  {"Charlotte", "America/New_York", -18000, 3600},
+  {"Chicago", "America/Chicago", -21600, 3600},
+  {"Dallas", "America/Chicago", -21600, 3600},
   {"Denver", "America/Denver", -25200, 3600},
-  {"Houston", "America/Chicago", -18000, 3600},
+  {"Detroit", "America/New_York", -18000, 3600},
+  {"Houston", "America/Chicago", -21600, 3600},
   {"Los Angeles", "America/Los_Angeles", -28800, 3600},
   {"Miami", "America/New_York", -18000, 3600},
   {"New York", "America/New_York", -18000, 3600},
   {"Philadelphia", "America/New_York", -18000, 3600},
+  {"Phoenix", "America/Phoenix", -25200, 0},
+  {"San Francisco", "America/Los_Angeles", -28800, 3600},
   {"Seattle", "America/Los_Angeles", -28800, 3600},
 };
 
@@ -751,8 +755,9 @@ const CountryEntry countries[] = {
   {"JP", "Japan", japanCities, 10},
   {"PL", "Poland", polonyCities, 10},
   {"SK", "Slovakia", slovakCities, 10},
+  {"US", "United States", unitedStatesCities, 15},
 };
-const int COUNTRIES_COUNT = 10;
+const int COUNTRIES_COUNT = 11;
 
 uint16_t getBgColor() { 
   if (themeMode == 0) return isWhiteTheme ? TFT_WHITE : TFT_BLACK;
@@ -1058,7 +1063,14 @@ bool lookupCityNominatim(String cityName, String countryHint) {
       if (arr.size() > 0) {
         JsonObject first = arr[0];
         if (first["name"].is<const char*>() && first["lat"].is<const char*>() && first["lon"].is<const char*>()) {
-          lookupCity = first["name"].as<String>();
+          String apiName = first["name"].as<String>();
+          // Nominatim může vrátit název v lokální abecedě (arabsky, čínsky...)
+          // Pokud obsahuje non-ASCII znaky, použijeme jméno zadané uživatelem
+          bool isAscii = true;
+          for (int ci = 0; ci < (int)apiName.length(); ci++) {
+            if ((unsigned char)apiName[ci] > 127) { isAscii = false; break; }
+          }
+          lookupCity = isAscii ? apiName : cityName;
           
           // ZDE BYLA CHYBA: odstraněno "float" před lat/lon, aby se zapsalo do globálních proměnných
           lat = atof(first["lat"].as<const char*>());
@@ -1206,67 +1218,77 @@ void syncRegion() {
   
   HTTPClient http;
   http.setTimeout(5000);
-  http.begin("http://ip-api.com/json?fields=status,city,timezone");
+http.begin("http://ip-api.com/json?fields=status,city,timezone,lat,lon");
 
   int httpCode = http.GET();
   if (httpCode == 200) {
-    StaticJsonDocument<400> doc;
+    StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, http.getString());
     
     if (!error && doc["status"] == "success") {
       // 1. Získat data z API do pomocných proměnných
       String detectedCity = doc["city"].as<String>();
       String detectedTimezone = doc["timezone"].as<String>();
+      float detectedLat = doc["lat"].as<float>();
+      float detectedLon = doc["lon"].as<float>();
       
       Serial.println("[AUTO] Detected: " + detectedCity + ", TZ: " + detectedTimezone);
+      Serial.println("[AUTO] Coordinates from IP: " + String(detectedLat, 4) + ", " + String(detectedLon, 4));
 
       // 2. Nastavit globální 'selected' proměnné pro applyLocation
       selectedCity = detectedCity;
       selectedTimezone = detectedTimezone;
       
-      // Detekce země a offsetů podle časové zóny
+// Detekce země podle časové zóny
       if (detectedTimezone.indexOf("Prague") >= 0) {
         selectedCountry = "Czech Republic";
-        gmtOffset_sec = 3600; daylightOffset_sec = 3600;
       } else if (detectedTimezone.indexOf("Berlin") >= 0) {
         selectedCountry = "Germany";
-        gmtOffset_sec = 3600; daylightOffset_sec = 3600;
       } else if (detectedTimezone.indexOf("Warsaw") >= 0) {
         selectedCountry = "Poland";
-        gmtOffset_sec = 3600; daylightOffset_sec = 3600;
       } else if (detectedTimezone.indexOf("Bratislava") >= 0) {
         selectedCountry = "Slovakia";
-        gmtOffset_sec = 3600; daylightOffset_sec = 3600;
       } else if (detectedTimezone.indexOf("Paris") >= 0) {
         selectedCountry = "France";
-        gmtOffset_sec = 3600; daylightOffset_sec = 3600;
       } else if (detectedTimezone.indexOf("London") >= 0) {
         selectedCountry = "United Kingdom";
-        gmtOffset_sec = 0; daylightOffset_sec = 3600;
-      } else if (detectedTimezone.indexOf("New_York") >= 0) {
+      } else if (detectedTimezone.indexOf("New_York") >= 0 || detectedTimezone.indexOf("Chicago") >= 0 ||
+                 detectedTimezone.indexOf("Denver") >= 0 || detectedTimezone.indexOf("Los_Angeles") >= 0) {
         selectedCountry = "United States";
-        gmtOffset_sec = -18000; daylightOffset_sec = 3600;
       } else if (detectedTimezone.indexOf("Tokyo") >= 0) {
         selectedCountry = "Japan";
-        gmtOffset_sec = 32400; daylightOffset_sec = 0;
       } else if (detectedTimezone.indexOf("Shanghai") >= 0 || detectedTimezone.indexOf("Hong_Kong") >= 0) {
         selectedCountry = "China";
-        gmtOffset_sec = 28800; daylightOffset_sec = 0;
-      } else if (detectedTimezone.indexOf("Sydney") >= 0 || detectedTimezone.indexOf("Melbourne") >= 0) {
+      } else if (detectedTimezone.indexOf("Sydney") >= 0 || detectedTimezone.indexOf("Melbourne") >= 0 ||
+                 detectedTimezone.indexOf("Brisbane") >= 0 || detectedTimezone.indexOf("Adelaide") >= 0 ||
+                 detectedTimezone.indexOf("Perth") >= 0) {
         selectedCountry = "Australia";
-        gmtOffset_sec = 36000; daylightOffset_sec = 3600;
       } else {
-        // Fallback pokud neznáme zónu - necháme Czech Republic nebo stávající
+        // Fallback pokud neznáme zónu
         if (selectedCountry == "") {
            selectedCountry = "Czech Republic";
-           gmtOffset_sec = 3600; daylightOffset_sec = 3600;
         }
       }
+      // Odvození POSIX TZ ze zjištěné IANA timezone (správně řeší letní/zimní čas)
+      posixTZ = ianaToPostfixTZ(detectedTimezone);
+      Serial.println("[AUTO] POSIX TZ derived: " + posixTZ);
       
       Serial.println("[AUTO] SelectedCountry set to: " + selectedCountry);
 
-      // 3. APLIKOVAT ZMĚNY (Uloží, nastaví čas a hlavně RESETUJE POČASÍ)
+      // 3. APLIKOVAT ZMĚNY (Uloží, nastaví čas – interně resetuje lat/lon na 0.0)
       applyLocation();
+
+      // 4. PŘEPSAT NULY skutečnými souřadnicemi z IP geolokace
+      //    applyLocation() záměrně resetuje lat/lon, proto je musíme dosadit až po něm
+      if (detectedLat != 0.0 || detectedLon != 0.0) {
+        lat = detectedLat;
+        lon = detectedLon;
+        prefs.begin("sys", false);
+        prefs.putFloat("lat", lat);
+        prefs.putFloat("lon", lon);
+        prefs.end();
+        Serial.println("[AUTO] Coordinates saved: " + String(lat, 4) + ", " + String(lon, 4));
+      }
       
     } else {
       Serial.println("[AUTO] JSON Parsing error or status not success");
@@ -1538,7 +1560,7 @@ void drawCitySelection() {
   tft.drawString(selectedCountry, 160, 15, 2);
   tft.drawString("SELECT CITY", 160, 35, 4);
 
-  String cities[10];
+  String cities[20];
   int cityCount = 0;
   getCountryCities(selectedCountry, cities, cityCount);
 
@@ -2267,6 +2289,8 @@ void drawDateAndWeek(const struct tm *ti)
   if (themeMode == 3) {  // YELLOW TÉMA - Text je ČERNÝ a TMAVÝ HNĚDÝ
     dateColor = TFT_BLACK;  // Hlavní text - černý
   }
+  
+  tft.setFreeFont(NULL);
   tft.setTextColor(dateColor, getBgColor());
   tft.setTextDatum(MC_DATUM);
   
@@ -2282,7 +2306,7 @@ void drawDateAndWeek(const struct tm *ti)
   strftime(weekBuf, sizeof(weekBuf), "%V", ti);
   weekNum = atoi(weekBuf);
 
-  const char *dayNames[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+  const char *dayNames[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
   String dayStr = String(dayNames[ti->tm_wday]);
   String weekStr = "Week " + String(weekNum) + ", " + dayStr;
   tft.drawString(weekStr, clockX, 193, 2);
@@ -2418,11 +2442,149 @@ void updateHands(int h, int m, int s) {
   tft.fillCircle(clockX, clockY, 3, TFT_LIGHTGREY);
 }
 
+String ianaToPostfixTZ(String iana) {
+  if (iana.indexOf("Prague") >= 0 || iana.indexOf("Berlin") >= 0 ||
+      iana.indexOf("Warsaw") >= 0 || iana.indexOf("Vienna") >= 0 ||
+      iana.indexOf("Bratislava") >= 0 || iana.indexOf("Paris") >= 0 ||
+      iana.indexOf("Rome") >= 0 || iana.indexOf("Madrid") >= 0 ||
+      iana.indexOf("Amsterdam") >= 0 || iana.indexOf("Brussels") >= 0 ||
+      iana.indexOf("Budapest") >= 0 || iana.indexOf("Copenhagen") >= 0 ||
+      iana.indexOf("Oslo") >= 0 || iana.indexOf("Stockholm") >= 0 ||
+      iana.indexOf("Zurich") >= 0 || iana.indexOf("Belgrade") >= 0 ||
+      iana.indexOf("Ljubljana") >= 0 || iana.indexOf("Zagreb") >= 0) {
+    return "CET-1CEST,M3.5.0,M10.5.0/3";
+  }
+  if (iana.indexOf("London") >= 0 || iana.indexOf("Dublin") >= 0 ||
+      iana.indexOf("Lisbon") >= 0) {
+    return "GMT0BST,M3.5.0/1,M10.5.0";
+  }
+  if (iana.indexOf("Helsinki") >= 0 || iana.indexOf("Kyiv") >= 0 ||
+      iana.indexOf("Kiev") >= 0 || iana.indexOf("Riga") >= 0 ||
+      iana.indexOf("Tallinn") >= 0 || iana.indexOf("Vilnius") >= 0 ||
+      iana.indexOf("Sofia") >= 0 || iana.indexOf("Bucharest") >= 0 ||
+      iana.indexOf("Athens") >= 0) {
+    return "EET-2EEST,M3.5.0/3,M10.5.0/4";
+  }
+  if (iana.indexOf("Moscow") >= 0) {
+    return "MSK-3";
+  }
+  if (iana.indexOf("Istanbul") >= 0) {
+    return "TRT-3";
+  }
+  if (iana.indexOf("New_York") >= 0 || iana.indexOf("Toronto") >= 0 ||
+      iana.indexOf("Montreal") >= 0) {
+    return "EST5EDT,M3.2.0,M11.1.0";
+  }
+  if (iana.indexOf("Chicago") >= 0 || iana.indexOf("Winnipeg") >= 0) {
+    return "CST6CDT,M3.2.0,M11.1.0";
+  }
+  if (iana.indexOf("Denver") >= 0 || iana.indexOf("Edmonton") >= 0) {
+    return "MST7MDT,M3.2.0,M11.1.0";
+  }
+  if (iana.indexOf("Los_Angeles") >= 0 || iana.indexOf("Vancouver") >= 0) {
+    return "PST8PDT,M3.2.0,M11.1.0";
+  }
+  if (iana.indexOf("Anchorage") >= 0) {
+    return "AKST9AKDT,M3.2.0,M11.1.0";
+  }
+  if (iana.indexOf("Honolulu") >= 0) {
+    return "HST10";
+  }
+  if (iana.indexOf("Tokyo") >= 0) {
+    return "JST-9";
+  }
+  if (iana.indexOf("Seoul") >= 0) {
+    return "KST-9";
+  }
+  if (iana.indexOf("Shanghai") >= 0 || iana.indexOf("Hong_Kong") >= 0 ||
+      iana.indexOf("Taipei") >= 0 || iana.indexOf("Singapore") >= 0 ||
+      iana.indexOf("Kuala_Lumpur") >= 0 || iana.indexOf("Perth") >= 0) {
+    return "CST-8";
+  }
+  if (iana.indexOf("Kolkata") >= 0 || iana.indexOf("Calcutta") >= 0) {
+    return "IST-5:30";
+  }
+  if (iana.indexOf("Dubai") >= 0 || iana.indexOf("Muscat") >= 0) {
+    return "GST-4";
+  }
+  if (iana.indexOf("Riyadh") >= 0 || iana.indexOf("Baghdad") >= 0 ||
+      iana.indexOf("Kuwait") >= 0) {
+    return "AST-3";
+  }
+  if (iana.indexOf("Tehran") >= 0) {
+    return "IRST-3:30IRDT,80/0,264/0";
+  }
+  if (iana.indexOf("Sydney") >= 0 || iana.indexOf("Melbourne") >= 0 ||
+      iana.indexOf("Hobart") >= 0 || iana.indexOf("Canberra") >= 0 ||
+      iana.indexOf("Wollongong") >= 0) {
+    return "AEST-10AEDT,M10.1.0,M4.1.0/3";
+  }
+  if (iana.indexOf("Brisbane") >= 0 || iana.indexOf("Townsville") >= 0) {
+    return "AEST-10";
+  }
+  if (iana.indexOf("Adelaide") >= 0) {
+    return "ACST-9:30ACDT,M10.1.0,M4.1.0/3";
+  }
+  if (iana.indexOf("Darwin") >= 0) {
+    return "ACST-9:30";
+  }
+  if (iana.indexOf("Auckland") >= 0) {
+    return "NZST-12NZDT,M9.5.0,M4.1.0/3";
+  }
+  if (iana.indexOf("Sao_Paulo") >= 0 || iana.indexOf("Buenos_Aires") >= 0) {
+    return "BRT3";
+  }
+  // Afrika
+  if (iana.indexOf("Cairo") >= 0) {
+    return "EET-2";  // Egypt UTC+2, bez DST
+  }
+  if (iana.indexOf("Johannesburg") >= 0 || iana.indexOf("Harare") >= 0 ||
+      iana.indexOf("Lusaka") >= 0 || iana.indexOf("Maputo") >= 0 ||
+      iana.indexOf("Gaborone") >= 0 || iana.indexOf("Maseru") >= 0 ||
+      iana.indexOf("Mbabane") >= 0 || iana.indexOf("Bulawayo") >= 0) {
+    return "CAT-2";  // South/Central Africa UTC+2, bez DST
+  }
+  if (iana.indexOf("Nairobi") >= 0 || iana.indexOf("Addis_Ababa") >= 0 ||
+      iana.indexOf("Dar_es_Salaam") >= 0 || iana.indexOf("Kampala") >= 0 ||
+      iana.indexOf("Mogadishu") >= 0 || iana.indexOf("Antananarivo") >= 0) {
+    return "EAT-3";  // East Africa UTC+3, bez DST
+  }
+  if (iana.indexOf("Lagos") >= 0 || iana.indexOf("Kinshasa") >= 0 ||
+      iana.indexOf("Douala") >= 0 || iana.indexOf("Libreville") >= 0 ||
+      iana.indexOf("Luanda") >= 0 || iana.indexOf("Bangui") >= 0 ||
+      iana.indexOf("Brazzaville") >= 0 || iana.indexOf("Malabo") >= 0) {
+    return "WAT-1";  // West/Central Africa UTC+1, bez DST
+  }
+  if (iana.indexOf("Abidjan") >= 0 || iana.indexOf("Accra") >= 0 ||
+      iana.indexOf("Dakar") >= 0 || iana.indexOf("Bamako") >= 0 ||
+      iana.indexOf("Conakry") >= 0 || iana.indexOf("Freetown") >= 0 ||
+      iana.indexOf("Monrovia") >= 0 || iana.indexOf("Ouagadougou") >= 0) {
+    return "GMT0";  // West Africa UTC+0, bez DST
+  }
+  if (iana.indexOf("Casablanca") >= 0 || iana.indexOf("El_Aaiun") >= 0) {
+    return "WET0WEST,M3.5.0,M10.5.0/3";  // Maroko má DST
+  }
+  if (iana.indexOf("Tunis") >= 0) {
+    return "CET-1";  // Tunisko UTC+1, bez DST
+  }
+  if (iana.indexOf("Tripoli") >= 0) {
+    return "EET-2";  // Libye UTC+2, bez DST
+  }
+  if (iana.indexOf("Khartoum") >= 0) {
+    return "CAT-3";  // Súdán UTC+3, bez DST — pozor: CAT je jen zkratka, jde o UTC+3
+  }
+  Serial.println("[TZ] Unknown IANA zone: " + iana + ", fallback UTC");
+  return "UTC0";
+}
 // ============================================
 // OPRAVA 3: Ukládání a načítání souřadnic
 // ============================================
 void applyLocation() {
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  posixTZ = ianaToPostfixTZ(selectedTimezone);
+  Serial.println("[TZ] Applying POSIX TZ: " + posixTZ + " for IANA: " + selectedTimezone);
+  configTime(0, 0, ntpServer);
+  setenv("TZ", posixTZ.c_str(), 1);
+  tzset();
   
   // RESET SOUŘADNIC - při vyberu ze seznamu musíme nechat fetchWeatherData() najít nové souřadnice
   lat = 0.0;
@@ -2433,6 +2595,7 @@ void applyLocation() {
   prefs.putString("city", selectedCity);
   prefs.putString("country", selectedCountry);
   prefs.putString("timezone", selectedTimezone);
+  prefs.putString("posixTZ", posixTZ);
   prefs.putInt("gmt", gmtOffset_sec);
   prefs.putInt("dst", daylightOffset_sec);
   
@@ -2455,6 +2618,7 @@ void loadSavedLocation() {
   String savedCountry = prefs.getString("country", "");
   String savedCity = prefs.getString("city", "");
   selectedTimezone = prefs.getString("timezone", "");
+  posixTZ = prefs.getString("posixTZ", "CET-1CEST,M3.5.0,M10.5.0/3");
   
   // OPRAVA: Sjednocení názvů klíčů s funkcí applyLocation ("gmt" místo "gmtOffset")
   gmtOffset_sec = prefs.getInt("gmt", 3600);
@@ -2470,12 +2634,19 @@ void loadSavedLocation() {
     cityName = savedCity;
     selectedCity = savedCity;
     selectedCountry = savedCountry;
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    // Pokud posixTZ nebyl uložen (stará verze firmware), odvoď ho z IANA timezone
+    if (posixTZ == "" || posixTZ == "CET-1CEST,M3.5.0,M10.5.0/3") {
+      if (selectedTimezone != "") {
+        posixTZ = ianaToPostfixTZ(selectedTimezone);
+      }
+    }
+    Serial.println("[LOAD] Applying POSIX TZ: " + posixTZ);
+    configTime(0, 0, ntpServer);
+    setenv("TZ", posixTZ.c_str(), 1);
+    tzset();
     Serial.println("[LOAD] Location loaded: " + cityName + " (" + String(lat) + "," + String(lon) + ")");
   }
 }
-
-
 
 // ================= WEATHER FUNCTIONS =================
 String getWeatherDesc(int code) {
@@ -2572,7 +2743,7 @@ void fetchWeatherData() {
   struct tm *timeinfo = localtime(&now);
 
   if (timeinfo) {
-    const char* dayAbbr[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+    const char* dayAbbr[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
     int tomorrowWday = (timeinfo->tm_wday + 1) % 7;
     forecastDay1Name = dayAbbr[tomorrowWday];
     int afterTomorrowWday = (timeinfo->tm_wday + 2) % 7;
@@ -2747,10 +2918,12 @@ void drawWeatherSection() {
   int day1y = 138;
   tft.drawString(forecastDay1Name, day1x, day1y);
 
-  // ✅ OPRAVA: Vykreslení bez textového °, ale s krouzkem funkcí
+// ✅ OPRAVA: Vykreslení bez textového °, ale s krouzkem funkcí
   tft.setTextColor(txtContrast, bg);
-  String tempMin1 = String((int)forecast[0].tempMin);
-  String tempMax1 = String((int)forecast[0].tempMax);
+  float fMin1 = weatherUnitF ? (forecast[0].tempMin * 9.0 / 5.0 + 32) : forecast[0].tempMin;
+  float fMax1 = weatherUnitF ? (forecast[0].tempMax * 9.0 / 5.0 + 32) : forecast[0].tempMax;
+  String tempMin1 = String((int)fMin1);
+  String tempMax1 = String((int)fMax1);
   
   // Vykreslení teploty s LOMÍTKEM místo pomlčky
   String tempRangeOnly1 = tempMin1 + "/" + tempMax1;
@@ -2776,10 +2949,12 @@ void drawWeatherSection() {
   int day2y = 170;
   tft.drawString(forecastDay2Name, day2x, day2y);
 
-  // ✅ OPRAVA: Vykreslení bez textového °, ale s krouzkem funkcí
+// ✅ OPRAVA: Vykreslení bez textového °, ale s krouzkem funkcí
   tft.setTextColor(txtContrast, bg);
-  String tempMin2 = String((int)forecast[1].tempMin);
-  String tempMax2 = String((int)forecast[1].tempMax);
+  float fMin2 = weatherUnitF ? (forecast[1].tempMin * 9.0 / 5.0 + 32) : forecast[1].tempMin;
+  float fMax2 = weatherUnitF ? (forecast[1].tempMax * 9.0 / 5.0 + 32) : forecast[1].tempMax;
+  String tempMin2 = String((int)fMin2);
+  String tempMax2 = String((int)fMax2);
   
   // Vykreslení teploty s LOMÍTKEM místo pomlčky
   String tempRangeOnly2 = tempMin2 + "/" + tempMax2;
@@ -2792,6 +2967,9 @@ void drawWeatherSection() {
   
   // Vykreslení malého krouzku jako stupně (r=1)
   drawDegreeCircle(degreeX2, degreeY2, 1, txtContrast);
+
+  // Vykreslení jednotky (C/F) za kruhem
+  tft.drawString(unit, degreeX2 + 4, day2y + 13);
   
 // ODDĚLUJÍCÍ LINKA
   tft.setTextColor(txt, bg);
@@ -3238,7 +3416,7 @@ void setup() {
   
   delay(500);
   Serial.println("\n\n[SETUP] === CYD Starting ===");
-  Serial.println("[SETUP] Version: 7.8 (Fixes Applied)");
+  Serial.println("[SETUP] Version: " + String(FIRMWARE_VERSION));
   
   // ===== PREFERENCES INITIALIZATION (Načítání nastavení) =====
   // Musíme načíst preference PŘED inicializací TFT, abychom znali barvu pozadí
@@ -3725,7 +3903,10 @@ void loop() {
 
   // 1. WiFi CONNECTION CHECK
   if (WiFi.status() != WL_CONNECTED) {
-    if (currentState != WIFICONFIG && currentState != KEYBOARD && currentState != CUSTOMCITYINPUT && currentState != CUSTOMCOUNTRYINPUT) {
+    if (currentState != WIFICONFIG && currentState != KEYBOARD && currentState != CUSTOMCITYINPUT && currentState != CUSTOMCOUNTRYINPUT &&
+        currentState != SETTINGS && currentState != WEATHERCONFIG && currentState != REGIONALCONFIG && currentState != GRAPHICSCONFIG &&
+        currentState != FIRMWARE_SETTINGS && currentState != COUNTRYSELECT && currentState != CITYSELECT && currentState != LOCATIONCONFIRM &&
+        currentState != COUNTRYLOOKUPCONFIRM && currentState != CITYLOOKUPCONFIRM) {
        currentState = CLOCK;
     }
     
@@ -4073,7 +4254,7 @@ void loop() {
       }
 
       case CITYSELECT: {
-        String cities[10];
+        String cities[20];
         int cityCount = 0;
         getCountryCities(selectedCountry, cities, cityCount);
         if (x >= 230 && x <= 320 && y >= 45 && y <= 95) {
