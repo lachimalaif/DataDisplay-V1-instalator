@@ -487,6 +487,7 @@ String countryToISO(String country) {
   if (country.indexOf("spain") >= 0) return "ES";
   if (country.indexOf("united states") >= 0) return "US";
   if (country.indexOf("united kingdom") >= 0) return "GB";
+  if (country.indexof("el salvador") >= 0) return "SV";
   return "US";
 }
 
@@ -685,6 +686,19 @@ const CityEntry unitedStatesCities[] = {
   {"Seattle", "America/Los_Angeles", -28800, 3600},
 };
 
+const CityEntry elSalvadoreCities[] = {
+{"San Salvador", "America/El_Salvador", -21600, 0},
+{"Soyapango", "America/El_Salvador", -21600, 0},
+{"Santa Ana", "America/El_Salvador", -21600, 0},
+{"San Miguel", "America/El_Salvador", -21600, 0},
+{"Mejicanos", "America/El_Salvador", -21600, 0},
+{"Colon", "America/El_Salvador", -21600, 0},
+{"Santa Tecla", "America/El_Salvador", -21600, 0},
+{"Apopa", "America/El_Salvador", -21600, 0},
+{"San Juan Opico", "America/El_Salvador", -21600, 0},
+{"Ciudad Delgado", "America/El_Salvador", -21600, 0},
+};
+
 const CityEntry unitedKingdomCities[] = {
   {"Bath", "Europe/London", 0, 3600},
   {"Belfast", "Europe/London", 0, 3600},
@@ -756,8 +770,9 @@ const CountryEntry countries[] = {
   {"PL", "Poland", polonyCities, 10},
   {"SK", "Slovakia", slovakCities, 10},
   {"US", "United States", unitedStatesCities, 15},
+  {"SV", "El Salvador", elSalvadoreCities, 10},
 };
-const int COUNTRIES_COUNT = 11;
+const int COUNTRIES_COUNT = 12;
 
 uint16_t getBgColor() { 
   if (themeMode == 0) return isWhiteTheme ? TFT_WHITE : TFT_BLACK;
