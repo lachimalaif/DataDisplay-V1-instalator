@@ -2586,10 +2586,6 @@ void applyLocation() {
   setenv("TZ", posixTZ.c_str(), 1);
   tzset();
   
-  // RESET SOUŘADNIC - při vyberu ze seznamu musíme nechat fetchWeatherData() najít nové souřadnice
-  lat = 0.0;
-  lon = 0.0;
-  
   // Uložení do preferencí
   prefs.begin("sys", false);
   prefs.putString("city", selectedCity);
