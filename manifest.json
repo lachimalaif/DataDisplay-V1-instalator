@@ -1,6 +1,6 @@
 {
   "name": "DataDisplay CYD",
-  "version": "1.4",
+  "version": "1.4.1",
   "new_install_prompt_erase": true,
   "builds": [
     {
