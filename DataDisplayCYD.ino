@@ -1,9 +1,9 @@
-// startup issue solved (connection successful and no more)
-//possibility of hand correction of Timezone in manual mode of regional setup
-// posix from api
-//right time over all world
-//hPa to inHg possibiliity
-//manual coordinates setup possibility 
+// three days for forecast
+// min max temps added for today
+// namedays diacritics removed, bigger font
+// : in front of sec deleted
+// shorcuts in days forecast
+// initial fetchWeatherData loading issue corrected
 
 
 #include <WiFi.h>
@@ -27,7 +27,7 @@ bool is12hFormat = false;    // false = 24h, true = 12h
 bool invertColors = false;  // NOVÁ PROMĚNNÁ: Invertování barev pro CYD desky s invertovaným displejem
 
 // ================= OTA UPDATE GLOBALS =================
-const char* FIRMWARE_VERSION = "1.4.1";  // AKTUÁLNÍ VERZE
+const char* FIRMWARE_VERSION = "1.5.0";  // AKTUÁLNÍ VERZE
 const char* VERSION_CHECK_URL = "https://raw.githubusercontent.com/lachimalaif/DataDisplay-V1-instalator/main/version.json";
 const char* FIRMWARE_URL = "https://github.com/lachimalaif/DataDisplay-V1-instalator/releases/latest/download/DataDisplayCYD.ino.bin";
 
@@ -83,9 +83,12 @@ struct ForecastData {
   float tempMin;
 };
 ForecastData forecast[2]; 
+float todayTempMin = 0.0;
+float todayTempMax = 0.0;
 // Proměnné pro dny předpovědi
-String forecastDay1Name = "Monday";    // Zítra
-String forecastDay2Name = "Tuesday";   // Pozítří
+String forecastDay1Name = "Mon";    // Zítra
+String forecastDay2Name = "Tue";   // Pozítří
+String forecastDay3Name = "Wed"; // Přespozítří
 
 int moonPhaseVal = 0; 
 
@@ -2493,7 +2496,7 @@ void drawDateAndWeek(const struct tm *ti)
       namedayColor = isWhiteTheme ? TFT_DARKGREEN : TFT_ORANGE;
     }
     tft.setTextColor(namedayColor, getBgColor());
-    tft.drawString("Nameday: " + todayNameday, clockX, 227, 1);
+    tft.drawString("Nameday: " + todayNameday, clockX, 227, 2);
   }
 }
 
@@ -2537,9 +2540,9 @@ void drawDigitalClock(int h, int m, int s) {
   // Sekundy a suffix pod tím
   char secStr[10];
   if (is12hFormat) {
-     sprintf(secStr, ":%02d%s", s, suffix.c_str());
+     sprintf(secStr, "%02d%s", s, suffix.c_str());
   } else {
-     sprintf(secStr, ":%02d", s);
+     sprintf(secStr, "%02d", s);
   }
   
   tft.setTextColor(getSecHandColor(), bgColor);
@@ -2944,11 +2947,13 @@ void fetchWeatherData() {
   struct tm *timeinfo = localtime(&now);
 
   if (timeinfo) {
-    const char* dayAbbr[] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+    const char* dayAbbr[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
     int tomorrowWday = (timeinfo->tm_wday + 1) % 7;
     forecastDay1Name = dayAbbr[tomorrowWday];
     int afterTomorrowWday = (timeinfo->tm_wday + 2) % 7;
     forecastDay2Name = dayAbbr[afterTomorrowWday];
+    int dayAfterAfterTomorrowWday = (timeinfo->tm_wday + 3) % 7;
+    forecastDay3Name = dayAbbr[dayAfterAfterTomorrowWday];
   }
 
   String weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + String(lat, 4) + "&longitude=" + String(lon, 4) +
@@ -2970,12 +2975,17 @@ void fetchWeatherData() {
       currentWindSpeed = doc["current"]["wind_speed_10m"];
       currentWindDirection = doc["current"]["wind_direction_10m"];
 
+      todayTempMin = doc["daily"]["temperature_2m_min"][0];
+      todayTempMax = doc["daily"]["temperature_2m_max"][0];
       forecast[0].code = doc["daily"]["weather_code"][1];
       forecast[0].tempMax = doc["daily"]["temperature_2m_max"][1];
       forecast[0].tempMin = doc["daily"]["temperature_2m_min"][1];
       forecast[1].code = doc["daily"]["weather_code"][2];
       forecast[1].tempMax = doc["daily"]["temperature_2m_max"][2];
       forecast[1].tempMin = doc["daily"]["temperature_2m_min"][2];
+      forecast[2].code = doc["daily"]["weather_code"][3];
+      forecast[2].tempMax = doc["daily"]["temperature_2m_max"][3];
+      forecast[2].tempMin = doc["daily"]["temperature_2m_min"][3];
 
       // Sunrise/Sunset processing
       if (doc["daily"].containsKey("sunrise") && doc["daily"]["sunrise"].size() > 0) {
@@ -3073,6 +3083,41 @@ void drawWeatherSection() {
   tft.setTextColor(txt, bg);
   tft.drawString(getWeatherDesc(weatherCode), 45, 48);
 
+  // --- Min/Max dnešního dne (4 řádky vpravo od teploty a popisu) ---
+  {
+    float todayMinDisp = weatherUnitF ? (todayTempMin * 9.0 / 5.0 + 32) : todayTempMin;
+    float todayMaxDisp = weatherUnitF ? (todayTempMax * 9.0 / 5.0 + 32) : todayTempMax;
+    String minStr = String((int)todayMinDisp);
+    String maxStr = String((int)todayMaxDisp);
+    const int mmX = 120;
+    tft.setFreeFont(NULL);
+    tft.setTextDatum(TL_DATUM);
+    // Min label
+    tft.setTextColor(txt, bg);
+    tft.setCursor(mmX, 17);
+    tft.print("Min:");
+    // Min hodnota + jednotka
+    tft.setTextColor(txtContrast, bg);
+    tft.setCursor(mmX, 28);
+    tft.print(minStr);
+    int minW = tft.textWidth(minStr);
+    drawDegreeCircle(mmX + minW + 2, 30, 1, txtContrast);
+    tft.setCursor(mmX + minW + 6, 28);
+    tft.print(unit);
+    // Max label
+    tft.setTextColor(txt, bg);
+    tft.setCursor(mmX, 40);
+    tft.print("Max:");
+    // Max hodnota + jednotka
+    tft.setTextColor(txtContrast, bg);
+    tft.setCursor(mmX, 51);
+    tft.print(maxStr);
+    int maxW = tft.textWidth(maxStr);
+    drawDegreeCircle(mmX + maxW + 2, 53, 1, txtContrast);
+    tft.setCursor(mmX + maxW + 6, 51);
+    tft.print(unit);
+  }
+
   // Vlhkost a tlak
   tft.setFreeFont(NULL);
   tft.setTextColor(txt, bg);
@@ -3104,79 +3149,63 @@ void drawWeatherSection() {
   tft.setTextColor(TFT_RED, bg);
   tft.print(sunsetTime);
 
-  // ODDLOVACÍ LINKA
+  // ODDĚLUJÍCÍ LINKA (těsně za sunrise/sunset, posunuta výše)
   tft.setTextColor(txt, bg);
-  tft.drawFastHLine(5, 120, 145, TFT_DARKGREY);
+  tft.drawFastHLine(5, 116, 145, TFT_DARKGREY);
 
-  // --- 2. SEKCE: Předpověď s DNEM ---
+  // --- 2. SEKCE: Předpověď - 3 dny vedle sebe ---
   tft.setTextColor(txt, bg);
   tft.setFreeFont(NULL);
-  tft.drawString("Forecast:", 5, 128);
+  tft.drawString("Forecast:", 5, 119);
 
-  // ============================================
-  // PRVNÍ DEN - VYKRESLENÍ S KROUZKEM JAKO °
-  // ============================================
-  drawWeatherIconVectorSmall(forecast[0].code, 8, 138);
-  tft.setTextDatum(ML_DATUM);
-  tft.setFreeFont(NULL); 
-  tft.setTextColor(txt, bg);
-  int day1x = 70;
-  int day1y = 138;
-  tft.drawString(forecastDay1Name, day1x, day1y);
+  // Parametry layoutu: 3 sloupce po 50px (celkem 150px < 155px šířka sekce)
+  // Každý sloupec: název dne (nahoře) → min/max teplota → ikonka počasí (dole)
+  // Obsah posunut níže pro rovnoměrný spacing mezi labelem a Moon Phase linkou
+  const int colW   = 50;
+  const int yName  = 140;  // Y: celý název dne (více prostoru pod "Forecast:")
+  const int yTemp  = 152;  // Y: min/max teplota
+  const int yIcon  = 164;  // Y: ikonka počasí (~30px vysoká, končí na ~194)
+  const int iconOffX = 9;  // Odsazení ikonky od levého okraje sloupce
 
-// ✅ OPRAVA: Vykreslení bez textového °, ale s krouzkem funkcí
-  tft.setTextColor(txtContrast, bg);
+  // Teplotní hodnoty pro všechny 3 dny
   float fMin1 = weatherUnitF ? (forecast[0].tempMin * 9.0 / 5.0 + 32) : forecast[0].tempMin;
   float fMax1 = weatherUnitF ? (forecast[0].tempMax * 9.0 / 5.0 + 32) : forecast[0].tempMax;
-  String tempMin1 = String((int)fMin1);
-  String tempMax1 = String((int)fMax1);
-  
-  // Vykreslení teploty s LOMÍTKEM místo pomlčky
-  String tempRangeOnly1 = tempMin1 + "/" + tempMax1;
-  tft.drawString(tempRangeOnly1, day1x, day1y + 13);
-  
-  // Výpočet pozice pro kroulek (stupень symbol)
-  int tempWidth1 = tft.textWidth(tempRangeOnly1);
-  int degreeX1 = day1x + tempWidth1 + 3;
-  int degreeY1 = day1y + 8;
-  
-  // Vykreslení malého krouzku jako stupně (r=1)
-  drawDegreeCircle(degreeX1, degreeY1, 1, txtContrast);
-  
-  // Vykreslení jednotky (C/F) za kruhem
-  tft.drawString(unit, degreeX1 + 4, day1y + 13);
-
-  // ============================================
-  // DRUHÝ DEN - VYKRESLENÍ S KROUZKEM JAKO °
-  // ============================================
-  drawWeatherIconVectorSmall(forecast[1].code, 8, 170);
-  tft.setTextColor(txt, bg);
-  int day2x = 70;
-  int day2y = 170;
-  tft.drawString(forecastDay2Name, day2x, day2y);
-
-// ✅ OPRAVA: Vykreslení bez textového °, ale s krouzkem funkcí
-  tft.setTextColor(txtContrast, bg);
   float fMin2 = weatherUnitF ? (forecast[1].tempMin * 9.0 / 5.0 + 32) : forecast[1].tempMin;
   float fMax2 = weatherUnitF ? (forecast[1].tempMax * 9.0 / 5.0 + 32) : forecast[1].tempMax;
-  String tempMin2 = String((int)fMin2);
-  String tempMax2 = String((int)fMax2);
-  
-  // Vykreslení teploty s LOMÍTKEM místo pomlčky
-  String tempRangeOnly2 = tempMin2 + "/" + tempMax2;
-  tft.drawString(tempRangeOnly2, day2x, day2y + 13);
-  
-  // Výpočet pozice pro kroulek (stupень symbol)
-  int tempWidth2 = tft.textWidth(tempRangeOnly2);
-  int degreeX2 = day2x + tempWidth2 + 3;
-  int degreeY2 = day2y + 8;
-  
-  // Vykreslení malého krouzku jako stupně (r=1)
-  drawDegreeCircle(degreeX2, degreeY2, 1, txtContrast);
+  float fMin3 = weatherUnitF ? (forecast[2].tempMin * 9.0 / 5.0 + 32) : forecast[2].tempMin;
+  float fMax3 = weatherUnitF ? (forecast[2].tempMax * 9.0 / 5.0 + 32) : forecast[2].tempMax;
 
-  // Vykreslení jednotky (C/F) za kruhem
-  tft.drawString(unit, degreeX2 + 4, day2y + 13);
-  
+  String t1 = String((int)fMin1) + "/" + String((int)fMax1);
+  String t2 = String((int)fMin2) + "/" + String((int)fMax2);
+  String t3 = String((int)fMin3) + "/" + String((int)fMax3);
+
+  // Vykreslení 3 sloupců (MC_DATUM = střed textu)
+  tft.setTextDatum(MC_DATUM);
+
+  // --- SLOUPEC 1 (střed x=25) ---
+  tft.setTextColor(txt, bg);
+  tft.drawString(forecastDay1Name, 0 * colW + colW / 2, yName);
+  tft.setTextColor(txtContrast, bg);
+  tft.drawString(t1, 0 * colW + colW / 2, yTemp);
+  drawWeatherIconVectorSmall(forecast[0].code, 0 * colW + iconOffX, yIcon);
+
+  // --- SLOUPEC 2 (střed x=75) ---
+  tft.setTextColor(txt, bg);
+  tft.drawString(forecastDay2Name, 1 * colW + colW / 2, yName);
+  tft.setTextColor(txtContrast, bg);
+  tft.drawString(t2, 1 * colW + colW / 2, yTemp);
+  drawWeatherIconVectorSmall(forecast[1].code, 1 * colW + iconOffX, yIcon);
+
+  // --- SLOUPEC 3 (střed x=125) ---
+  tft.setTextColor(txt, bg);
+  tft.drawString(forecastDay3Name, 2 * colW + colW / 2, yName);
+  tft.setTextColor(txtContrast, bg);
+  tft.drawString(t3, 2 * colW + colW / 2, yTemp);
+  drawWeatherIconVectorSmall(forecast[2].code, 2 * colW + iconOffX, yIcon);
+
+  // Obnovení výchozího datumu textu
+  tft.setTextDatum(TL_DATUM);
+
 // ODDĚLUJÍCÍ LINKA
   tft.setTextColor(txt, bg);
   tft.drawFastHLine(5, 200, 145, TFT_DARKGREY);
@@ -3767,18 +3796,18 @@ String getNamedayForDate(int day, int month) {
   // Hardcoded ceske svatky bez diakritiky - pouze pro Czech Republic
   static const char* namedays[13][32] = {
     {}, // mesic 0 (neexistuje)
-    {"--","Novy rok","Karina","Radmila","Diana","Dalimil","Tri krále","Vilma","Ctirad","Adrian","Brezislav","Bohdana","Pravoslav","Edita","Radovan","Alice","Ctirad","Drahoslav","Vladislav","Doubravka","Ilona","Elian","Slavomir","Zdenek","Milena","Milos","Zora","Ingrid","Otyla","Zdislava","Robin","Marika"}, // Leden
-    {"--","Hynek","Nela","Blazej","Jarmila","Dobromila","Vanda","Veronika","Milada","Apolena","Mojmir","Bozena","Slavena","Vendelin","Valentin","Jiri","Ljuba","Miloslav","Gizela","Patrik","Oldrich","Lenka","Petr","Svatopluk","Matej","Liliana","Dorotea","Alexandr","Lumír","Horymír","--","--"}, // Unor
-    {"--","Bedrich","Anezka","Kamil","Stela","Kazimir","Miroslav","Tomas","Gabriela","Franciska","Viktorie","Andelka","Rehore","Ruzena","Matylda","Kristyna","Lubomir","Vlastimil","Eduard","Josef","Svetlana","Radek","Leona","Ivona","Gabriel","Marian","Emanuel","Dita","Sonar","Taťana","Arnošt","Kveta"}, // Brezen
-    {"--","Hugo","Erika","Richard","Ivana","Miroslava","Vendula","Herman","Ema","Dusan","Darja","Izabela","Julius","Ales","Vincenc","Anastázie","Irena","Rudolf","Valerie","Rostislav","Marcela","Alexandr","Evženie","Vojtech","Jiri","Marek","Oto","Jaroslav","Vlastislav","Robert","Blahoslav","--"}, // Duben
-    {"--","Svátek práce","Zikmund","Alexej","Květoslav","Klaudie","Radoslav","Stanislav","Den vítězství","Ctibor","Blažena","Svatava","Pankrac","Servác","Bonifác","Žofie","Přemysl","Aneta","Nataša","Ivo","Zbyšek","Monika","Emil","Vladimír","Jana","Viola","Filip","Valdemar","Vilém","Maxim","Ferdinand","Kamila"}, // Kveten
-    {"--","Laura","Jarmil","Tamara","Dalibor","Dobroslav","Norbert","Iveta","Medard","Stanislava","Gita","Bruno","Antonie","Antonín","Roland","Vít","Zbyněk","Adolf","Milan","Leoš","Květa","Alois","Pavla","Zdeňka","Jan","Ivan","Adriana","Ladislav","Lubomír","Petr a Pavel","Šárka","--"}, // Cerven
-    {"--","Jaroslava","Patricie","Radomír","Prokop","Cyril a Metoděj","Jan Hus","Bohuslava","Nora","Drahoslava","Libuše a Amálie","Olga","Bořek","Markéta","Karolína","Jindřich","Luboš","Martina","Drahomíra","Čeněk","Ilja","Vítězslav","Magdaléna","Libor","Kristýna","Jakub","Anna","Věroslav","Viktor","Marta","Bořivoj","Ignác"}, // Cervenec
-    {"--","Oskar","Gustav","Miluše","Dominik","Kristián","Oldřiška","Lada","Soběslav","Roman","Vavřinec","Zuzana","Klára","Alena","Alan","Hana","Jáchym","Petra","Helena","Ludvík","Bernard","Johana","Bohuslav","Sandra","Bartoloměj","Radim","Luděk","Otakar","Augustýn","Evelína","Vladěna","Pavlína"}, // Srpen
-    {"--","Linda","Adéla","Bronislav","Jindřiška","Boris","Boleslav","Regína","Mariana","Daniela","Irma","Denisa","Marie","Lubor","Radka","Jolana","Ludmila","Naděžda","Kryštof","Zita","Oleg","Matouš","Darina","Berta","Jaromír","Zlata","Andrea","Jonáš","Václav","Michal","Jeroným","--"}, // Zari
-    {"--","Igor","Olivie","Bohumil","František","Eliška","Hanuš","Justýna","Věra","Štefan","Marina","Andrej","Marcel","Renáta","Agáta","Tereza","Havel","Hedvika","Lukáš","Michaela","Vendelín","Brigita","Sabina","Teodor","Nina","Beáta","Erik","Šarlota","Státní svátek","Silvie","Tadeáš","Štěpánka"}, // Rijen
-    {"--","Felix","Památka zesnulých","Hubert","Karel","Miriam","Liběna","Saskie","Bohumír","Bohdan","Evžen","Martin","Benedikt","Tibor","Sáva","Leopold","Otmar","Den boje za svobodu","Romana","Alžběta","Nikola","Albert","Cecílie","Klement","Emílie","Kateřina","Artur","Xenie","René","Zina","Ondřej","--"}, // Listopad
-    {"--","Iva","Blanka","Svatoslav","Barbora","Jitka","Mikuláš","Ambrož","Květoslava","Vratislav","Julie","Dana","Simona","Lucie","Lýdie","Radana","Albína","Daniel","Miloslav","Ester","Dagmar","Natálie","Šimon","Vlasta","Štědrý den","1. svátek vánoční","2. svátek vánoční","Žaneta","Bohumila","Judita","David","Silvestr"} // Prosinec
+    {"--","Novy rok","Karina","Radmila","Diana","Dalimil","Tri krale","Vilma","Ctirad","Adrian","Brezislav","Bohdana","Pravoslav","Edita","Radovan","Alice","Ctirad","Drahoslav","Vladislav","Doubravka","Ilona","Elian","Slavomir","Zdenek","Milena","Milos","Zora","Ingrid","Otyla","Zdislava","Robin","Marika"}, // Leden
+    {"--","Hynek","Nela","Blazej","Jarmila","Dobromila","Vanda","Veronika","Milada","Apolena","Mojmir","Bozena","Slavena","Vendelin","Valentin","Jiri","Ljuba","Miloslav","Gizela","Patrik","Oldrich","Lenka","Petr","Svatopluk","Matej","Liliana","Dorotea","Alexandr","Lumir","Horymir","--","--"}, // Unor
+    {"--","Bedrich","Anezka","Kamil","Stela","Kazimir","Miroslav","Tomas","Gabriela","Franciska","Viktorie","Andelka","Rehore","Ruzena","Matylda","Kristyna","Lubomir","Vlastimil","Eduard","Josef","Svetlana","Radek","Leona","Ivona","Gabriel","Marian","Emanuel","Dita","Sonar","Tatana","Arnost","Kveta"}, // Brezen
+    {"--","Hugo","Erika","Richard","Ivana","Miroslava","Vendula","Herman","Ema","Dusan","Darja","Izabela","Julius","Ales","Vincenc","Anastazie","Irena","Rudolf","Valerie","Rostislav","Marcela","Alexandr","Evzenie","Vojtech","Jiri","Marek","Oto","Jaroslav","Vlastislav","Robert","Blahoslav","--"}, // Duben
+    {"--","Svatek prace","Zikmund","Alexej","Kvetoslav","Klaudie","Radoslav","Stanislav","Den vitezstvi","Ctibor","Blazena","Svatava","Pankrac","Servac","Bonifac","Zofie","Premysl","Aneta","Natasa","Ivo","Zbysek","Monika","Emil","Vladimir","Jana","Viola","Filip","Valdemar","Vilem","Maxim","Ferdinand","Kamila"}, // Kveten
+    {"--","Laura","Jarmil","Tamara","Dalibor","Dobroslav","Norbert","Iveta","Medard","Stanislava","Gita","Bruno","Antonie","Antonin","Roland","Vit","Zbynek","Adolf","Milan","Leos","Kveta","Alois","Pavla","Zdenka","Jan","Ivan","Adriana","Ladislav","Lubomir","Petr a Pavel","Sarka","--"}, // Cerven
+    {"--","Jaroslava","Patricie","Radomir","Prokop","Cyril a Metodej","Jan Hus","Bohuslava","Nora","Drahoslava","Libuse a Amalie","Olga","Borek","Marketa","Karolina","Jindrich","Lubos","Martina","Drahomira","Cenek","Ilja","Vitezslav","Magdalena","Libor","Kristyna","Jakub","Anna","Veroslav","Viktor","Marta","Borivoj","Ignac"}, // Cervenec
+    {"--","Oskar","Gustav","Miluse","Dominik","Kristian","Oldriska","Lada","Sobeslav","Roman","Vavrinec","Zuzana","Klara","Alena","Alan","Hana","Jachym","Petra","Helena","Ludvik","Bernard","Johana","Bohuslav","Sandra","Bartolomej","Radim","Ludek","Otakar","Augustyn","Evelina","Vladena","Pavlina"}, // Srpen
+    {"--","Linda","Adela","Bronislav","Jindriska","Boris","Boleslav","Regina","Mariana","Daniela","Irma","Denisa","Marie","Lubor","Radka","Jolana","Ludmila","Nadezda","Krystof","Zita","Oleg","Matous","Darina","Berta","Jaromir","Zlata","Andrea","Jonas","Vaclav","Michal","Jeronym","--"}, // Zari
+    {"--","Igor","Olivie","Bohumil","Frantisek","Eliska","Hanus","Justyna","Vera","Stefan","Marina","Andrej","Marcel","Renata","Agata","Tereza","Havel","Hedvika","Lukas","Michaela","Vendelin","Brigita","Sabina","Teodor","Nina","Beata","Erik","Sarlota","Statni svatek","Silvie","Tadeas","Stepanka"}, // Rijen
+    {"--","Felix","Pamatka zesnulych","Hubert","Karel","Miriam","Libena","Saskie","Bohumir","Bohdan","Evzen","Martin","Benedikt","Tibor","Sava","Leopold","Otmar","Den boje za svobodu","Romana","Alzbeta","Nikola","Albert","Cecilie","Klement","Emilie","Katerina","Artur","Xenie","Rene","Zina","Ondrej","--"}, // Listopad
+    {"--","Iva","Blanka","Svatoslav","Barbora","Jitka","Mikulas","Ambroz","Kvetoslava","Vratislav","Julie","Dana","Simona","Lucie","Lydie","Radana","Albina","Daniel","Miloslav","Ester","Dagmar","Natalie","Simon","Vlasta","Stedry den","1. svatek vanocni","2. svatek vanocni","Zaneta","Bohumila","Judita","David","Silvestr"} // Prosinec
   };
   
   if (month < 1 || month > 12 || day < 1 || day > 31) return "--";
@@ -5033,7 +5062,8 @@ case FIRMWARE_SETTINGS: {
       }
     }
 
-    if (millis() - lastWeatherUpdate > 1800000) {
+    unsigned long weatherInterval = initialWeatherFetched ? 1800000UL : 30000UL;
+    if (millis() - lastWeatherUpdate > weatherInterval) {
       if (WiFi.status() == WL_CONNECTED && cityName != "") {
         fetchWeatherData();
         drawWeatherSection();
